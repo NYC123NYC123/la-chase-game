@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LA City Chase Game</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: Arial; }
+        canvas { display: block; cursor: none; }
+        #instructions { position: absolute; top: 10px; left: 10px; color: white; z-index: 10; }
+    </style>
+</head>
+<body>
+    <div id="instructions">
+        <div>Arrows: Run | Space: Jump | C: Collect Panicked People | Score: <span id="score">0</span></div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        const state = {
+            player: { x: 150, y: canvas.height - 200, vx: 0, vy: 0, speed: 6, jumpPower: -16, grounded: false, w: 40, h: 80 },
+            keys: {},
+            gravity: 0.9,
+            friction: 0.88,
+            score: 0,
+            worldX: 0,
+            bgImg: new Image(),
+            platforms: [],
+            obstacles: [],
+            people: [],
+            particles: []
+        };
+
+        // Updated image name
+        state.bgImg.src = 'Street Scene.png';
+        state.bgImg.onload = () => console.log('Street scene background loaded!');
+
+        window.addEventListener('keydown', (e) => state.keys[e.code] = true);
+        window.addEventListener('keyup', (e) => state.keys[e.code] = false);
+
+        function collides(a, b) {
+            return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+        }
+
+        function spawnPerson() {
+            state.people.push({
+                x: canvas.width + Math.random() * 500,
+                y: canvas.height - 180,
+                vx: -2 - Math.random() * 3,
+                vy: 0,
+                w: 30, h: 70,
+                panicFrame: 0
+            });
+        }
+
+        function spawnObstacle() {
+            state.obstacles.push({
+                x: canvas.width + Math.random() * 300,
+                y: canvas.height - 100,
+                w: 80, h: 50,
+                passed: false
+            });
+        }
+
+        function update() {
+            const p = state.player;
+
+            p.vx = 0;
+            if (state.keys['ArrowLeft']) { p.vx = -p.speed; state.worldX += 3; }
+            if (state.keys['ArrowRight']) { p.vx = p.speed; state.worldX -= 3; }
+            if (state.keys['Space'] && p.grounded) { p.vy = p.jumpPower; p.grounded = false; }
+            if (state.keys['KeyC']) {
+                state.people = state.people.filter(person => {
+                    if (collides(p, person)) {
+                        state.score += 25;
+                        for (let i = 0; i < 10; i++) {
+                            state.particles.push({
+                                x: person.x + 15, y: person.y + 35,
+                                vx: (Math.random() - 0.5) * 10, vy: -Math.random() * 5,
+                                life: 30, size: Math.random() * 5 + 2
+                            });
+                        }
+                        return false;
+                    }
+                    return true;
+                });
+            }
+
+            p.vy += state.gravity;
+            p.vx *= state.friction;
+            p.x = Math.max(50, Math.min(canvas.width - 100, p.x + p.vx));
+            p.y += p.vy;
+
+            if (p.y >= canvas.height - 150 - p.h) {
+                p.y = canvas.height - 150 - p.h;
+                p.vy = 0;
+                p.grounded = true;
+            }
+
+            state.people.forEach(person => {
+                person.x += person.vx;
+                person.panicFrame += 0.2;
+                person.vy += state.gravity * 0.5;
+                person.y += person.vy;
+                if (person.y > canvas.height - 150 - person.h) {
+                    person.y = canvas.height - 150 - person.h;
+                    person.vy *= -0.3;
+                }
+                if (person.x < -50) state.people.splice(state.people.indexOf(person), 1);
+            });
+
+            state.obstacles.forEach((obs, i) => {
+                obs.x -= 3;
+                if (obs.x + obs.w < 0) state.obstacles.splice(i, 1);
+                if (collides(p, obs)) p.vy = -10;
+            });
+
+            state.particles = state.particles.filter(part => {
+                part.x += part.vx;
+                part.y += part.vy;
+                part.vy += 0.2;
+                part.life--;
+                part.size *= 0.98;
+                return part.life > 0;
+            });
+
+            if (Math.random() < 0.02) spawnPerson();
+            if (Math.random() < 0.01) spawnObstacle();
+
+            scoreEl.textContent = state.score;
+        }
+
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const bgW = canvas.width * 1.5;
+            if (state.bgImg.complete) {
+                ctx.drawImage(state.bgImg, -state.worldX * 0.5 % bgW, 0, bgW, canvas.height);
+            } else {
+                ctx.fillStyle = '#1a1a2e';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
+            ctx.fillStyle = '#333';
+            ctx.fillRect(0, canvas.height - 150, canvas.width, 150);
+
+            ctx.fillStyle = '#666';
+            ctx.shadowColor = '#fff'; ctx.shadowBlur = 10;
+            state.obstacles.forEach(obs => ctx.fillRect(obs.x, obs.y, obs.w, obs.h));
+            ctx.shadowBlur = 0;
+
+            state.people.forEach(person => {
+                ctx.save();
+                ctx.translate(person.x + person.w/2, person.y + person.h/2);
+                ctx.rotate(Math.sin(person.panicFrame) * 0.1);
+                ctx.fillStyle = '#ff6b6b';
+                ctx.fillRect(-person.w/2, -person.h/2, person.w, person.h);
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(-8, -person.h/2 + 10, 16, 10);
+                ctx.restore();
+            });
+
+            const p = state.player;
+            ctx.save();
+            ctx.translate(p.x + p.w/2, p.y + p.h/2);
+            ctx.shadowColor = '#00f'; ctx.shadowBlur = 20;
+            ctx.strokeStyle = '#00f';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(-p.w/2, -p.h/2, p.w, p.h);
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#4a90e2';
+            ctx.fillRect(-p.w/2 + 5, -p.h/2 + 20, p.w - 10, p.h - 20);
+            ctx.restore();
+
+            ctx.fillStyle = '#ffd700';
+            state.particles.forEach(part => {
+                ctx.save();
+                ctx.globalAlpha = part.life / 30;
+                ctx.beginPath();
+                ctx.arc(part.x, part.y, part.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+        }
+
+        function loop() {
+            update();
+            render();
+            requestAnimationFrame(loop);
+        }
+        loop();
+    </script>
+</body>
+</html>
